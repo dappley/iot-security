@@ -27,7 +27,7 @@
 
 [[constraint]]
   name = "github.com/dappley/go-dappley"
-  version = "0.1.2"
+  branch = "sc"
 
 [[constraint]]
   name = "github.com/sirupsen/logrus"

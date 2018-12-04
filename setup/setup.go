@@ -11,7 +11,6 @@ import (
 	"github.com/dappley/go-dappley/common"
 	"github.com/dappley/go-dappley/crypto/keystore/secp256k1"
 	"github.com/dappley/go-dappley/rpc/pb"
-	"github.com/dappley/go-dappley/util"
 	logger "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"log"
@@ -26,6 +25,11 @@ type Config struct {
 	AdminPubKey    string
 	AdminPrivKey   string
 	Addresses      []string
+}
+
+type ArgStruct struct{
+	Function string `json:"function"`
+	Args 	 []string `json:"args"`
 }
 
 func main() {
@@ -90,8 +94,8 @@ func initialSetup(serviceClient rpcpb.AdminServiceClient, config Config) {
 		addrArray = append(addrArray, fmt.Sprintf("\"%s\"", addr))
 	}
 	addrs := strings.Join(addrArray, ",")
-
-	var input util.ArgStruct
+	
+	var input ArgStruct
 	input.Function = "setup"
 	input.Args = []string{
 		fmt.Sprintf("[%s]", addrs),
