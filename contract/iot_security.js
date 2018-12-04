@@ -10,12 +10,13 @@ const keyCurrInfo = "currInfo";
 const keyBlkHeight = "blkHeight";
 const keyStartingBlkHeight = "startingBlkHeight";
 const keyVerificationAddrs = "verificationAddresses";
+const InfoKeyHeight = "BlkHeight";
+const InfoKeyData = "Data";
 const adminAddr = "dHqWD1QtVqe9ioFWNUCQC2EAi6QZ9sg8Np";
 var numOfBatch = 4;
 
 IotSecurity.prototype = {
     register: function(info, addr, pubKey, sig){
-        //TODO: prevent replay attack
         //check if the address is in addr list
         let addrs = LocalStorage.get(keyAddrs);
         if (!addrs.includes(addr)){
@@ -23,15 +24,28 @@ IotSecurity.prototype = {
             return false
         }
 
+        //verify block height info (prevent replay attack)
+        let currBlkHeight = Blockchain.getCurrBlockHeight();
+        if (!info[InfoKeyHeight]){
+            _log.warn("Register: Block height is not found in uploaded info!");
+            return false;
+        }
+        if (info[InfoKeyHeight] != currBlkHeight){
+            _log.warn("Register: Uploaded block height is not equal to the current block height");
+            _log.warn("Register: Uploaded block height:", info[InfoKeyHeight]);
+            _log.warn("Register: Current block height:", currBlkHeight);
+            return false;
+        }
+        let infoString = JSON.stringify(info);
         //verify publickey and signature
-        if (!this.verify(info, addr, pubKey, sig)){
+        if (!this.verify(infoString, addr, pubKey, sig)){
             _log.warn("Register: Verification failed");
             return false
         }
 
         let data = LocalStorage.get(addr);
         let jsonObj = {};
-        let currBlkHeight = Blockchain.getCurrBlockHeight();
+
         if (data){
             jsonObj = JSON.parse(data);
             //check block height. 1 register per block. Second register will be declined
@@ -42,10 +56,11 @@ IotSecurity.prototype = {
                 return false;
             }
             jsonObj[keyPrevInfo] = jsonObj[keyCurrInfo];
-        }else{
-            jsonObj[keyPrevInfo] = info;
+                    }else{
+            jsonObj[keyPrevInfo] = info[InfoKeyData];
         }
-        jsonObj[keyCurrInfo] = info;
+
+        jsonObj[keyCurrInfo] = info[InfoKeyData];
         jsonObj[keyBlkHeight] = currBlkHeight;
         let result = JSON.stringify(jsonObj);
         LocalStorage.set(addr, result);

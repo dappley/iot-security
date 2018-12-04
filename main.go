@@ -28,6 +28,11 @@ type Config struct {
 	NodePrivateKey string
 }
 
+type InfoStruct struct{
+	Data 		string
+	BlkHeight 	uint64 `json:",string"`
+}
+
 func main() {
 
 	logger.SetFormatter(&logger.TextFormatter{
@@ -63,7 +68,7 @@ func main() {
 				return
 			}
 			if blkHeight > currBlkHeight {
-				register(adminRpcService, config)
+				register(adminRpcService, rpcService, config)
 				logger.Info("Registered! BlockHeight:", blkHeight)
 				currBlkHeight = blkHeight
 			}
@@ -104,9 +109,20 @@ func initRpcClient(port int) *grpc.ClientConn {
 	return conn
 }
 
-func register(serviceClient rpcpb.AdminServiceClient, config Config) {
-	info := "hello world"
-	data := sha256.Sum256([]byte(info))
+func register(adminServiceClient rpcpb.AdminServiceClient, rpcServiceClient rpcpb.RpcServiceClient, config Config) {
+
+	blkHeight,err := getBlockHeight(rpcServiceClient)
+	if err != nil {
+		logger.Panic("Unable to get latest block height. Error:", err)
+	}
+
+	info := InfoStruct{"hello world", blkHeight+1}
+	infoBytes, err := json.Marshal(info)
+	if err != nil {
+		logger.Panic("Unable to parse info. Error:",err)
+	}
+
+	data := sha256.Sum256(infoBytes)
 	privData, err := hex.DecodeString(config.NodePrivateKey)
 	if err != nil {
 		logger.Panic("Cannot decode admin private key")
@@ -116,13 +132,13 @@ func register(serviceClient rpcpb.AdminServiceClient, config Config) {
 
 	var input util.ArgStruct
 	input.Function = "register"
-	input.Args = []string{info, config.NodeAddr, config.NodePubkey, sig}
+	input.Args = []string{string(infoBytes), config.NodeAddr, config.NodePubkey, sig}
 	rawBytes, err := json.Marshal(input)
 
 	if err != nil {
 		logger.Panic("Unable to parse function")
 	}
-	_, err = serviceClient.RpcSend(context.Background(), &rpcpb.SendRequest{
+	_, err = adminServiceClient.RpcSend(context.Background(), &rpcpb.SendRequest{
 		From:       config.SenderAddr,
 		To:         config.ContractAddr,
 		Amount:     common.NewAmount(uint64(1)).Bytes(),
