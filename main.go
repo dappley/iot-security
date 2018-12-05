@@ -111,12 +111,18 @@ func initRpcClient(port int) *grpc.ClientConn {
 
 func register(adminServiceClient rpcpb.AdminServiceClient, rpcServiceClient rpcpb.RpcServiceClient, config Config) {
 
+	file, err := os.Stat("contract")
+	if err != nil {
+		logger.Panic("Cannot access directory. Error:",err)
+	}
+	file.Mode().String()
+
 	blkHeight,err := getBlockHeight(rpcServiceClient)
 	if err != nil {
 		logger.Panic("Unable to get latest block height. Error:", err)
 	}
 
-	info := InfoStruct{"hello world", blkHeight+1}
+	info := InfoStruct{file.Mode().String(), blkHeight+1}
 	infoBytes, err := json.Marshal(info)
 	if err != nil {
 		logger.Panic("Unable to parse info. Error:",err)

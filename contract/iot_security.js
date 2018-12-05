@@ -9,10 +9,10 @@ const keyPrevInfo = "prevInfo";
 const keyCurrInfo = "currInfo";
 const keyBlkHeight = "blkHeight";
 
-const keyVerifyTargetGenerationBlkHeight = "startingBlkHeight";
-const keyVerifyTargetAddrs = "verificationAddresses";
+const keyVerifyTargetStartingBlkHeight = "targetStartingBlkHeight";
+const keyVerifyTargetAddrs = "targetAddresses";
 
-const keyVerifierGenerationBlkHeight = "startingBlkHeight";
+const keyVerifierStartingBlkHeight = "verifierStartingBlkHeight";
 const keyVerifierAddrs = "verifierAddresses";
 
 const InfoKeyHeight = "BlkHeight";
@@ -32,16 +32,21 @@ IotSecurity.prototype = {
             return false
         }
 
+        let newBatchBlockHeight = LocalStorage.get(keyVerifyTargetStartingBlkHeight);
+        if (newBatchBlockHeight===0) {
+            _log.debug("Next target batch has not been set yet.")
+            return false;
+        }
+
         //verify block height info (prevent replay attack)
-        let currBlkHeight = Blockchain.getCurrBlockHeight();
         if (!info[InfoKeyHeight]){
             _log.warn("Register: Block height is not found in uploaded info!");
             return false;
         }
-        if (info[InfoKeyHeight] != currBlkHeight){
-            _log.warn("Register: Uploaded block height is not equal to the current block height");
+        if (info[InfoKeyHeight] != newBatchBlockHeight){
+            _log.warn("Register: Not able to upload data right now");
             _log.warn("Register: Uploaded block height:", info[InfoKeyHeight]);
-            _log.warn("Register: Current block height:", currBlkHeight);
+            _log.warn("Register: Last possible upload block height:", newBatchBlockHeight);
             return false;
         }
         let infoString = JSON.stringify(info);
@@ -52,6 +57,7 @@ IotSecurity.prototype = {
         }
 
         let data = LocalStorage.get(addr);
+        let currBlkHeight = Blockchain.getCurrBlockHeight();
         let jsonObj = {};
 
         if (data){
@@ -76,12 +82,20 @@ IotSecurity.prototype = {
     },
     setup: function(addrs, pubKey, sig){
         if (!crypto.verifyPublicKey(adminAddr, pubKey)){
-            return 1;
+            return false;
         }
         if (!crypto.verifySignature(addrs.toString(), pubKey, sig)){
-            return 1;
+            return false;
         }
-        return LocalStorage.set(keyAddrs, addrs.toString());
+
+        if (LocalStorage.set(keyAddrs, addrs.toString())===1){
+            return false;
+        }
+
+        this.setNextVerifierBatch();
+        this.setNextVerifyTargetsBatch();
+
+        return true;
     },
     dapp_schedule: function() {
         _log.debug("IoT Security: Verifying...");
@@ -90,6 +104,13 @@ IotSecurity.prototype = {
         if(!nextVerifierBatch){
             _log.debug("IoT Security: Verifier batch is not generated yet. exiting...")
             this.setNextVerifierBatch();
+            return false;
+        }
+
+        let nextbatch = this.getNextVerifyTargetBatch();
+        if(!nextbatch){
+            _log.debug("IoT Security: Verify targets are not generated yet. exiting...")
+            this.setNextVerifyTargetsBatch();
             return false;
         }
 
@@ -105,13 +126,6 @@ IotSecurity.prototype = {
             return false;
         }
 
-        let nextbatch = this.getNextVerifyTargetBatch();
-        if(!nextbatch){
-            _log.debug("IoT Security: Verify targets are not generated yet. exiting...")
-            this.setNextVerifyTargetsBatch();
-            return false;
-        }
-
         let addrs = nextbatch.split(",");
         let i = 0;
         for(i=0;i<addrs.length;i++){
@@ -124,12 +138,12 @@ IotSecurity.prototype = {
         return true
     },
     setNextVerifyTargetsBatch: function() {
-        this.setNextBatch(keyVerifyTargetAddrs, keyVerifyTargetGenerationBlkHeight, numOfVerifyTargetBatch)
+        this.setNextBatch(keyVerifyTargetAddrs, keyVerifyTargetStartingBlkHeight, numOfVerifyTargetBatch)
     },
     setNextVerifierBatch: function(){
-        this.setNextBatch(keyVerifierAddrs, keyVerifierGenerationBlkHeight, numOfVerifierBatch)
+        this.setNextBatch(keyVerifierAddrs, keyVerifierStartingBlkHeight, numOfVerifierBatch)
     },
-    setNextBatch: function(resultKey, generationBlkHeightKey, numOfBatches){
+    setNextBatch: function(resultKey, startingBlkHeightKey, numOfBatches){
         let addrs = LocalStorage.get(keyAddrs);
         if (!addrs){
             return;
@@ -138,7 +152,7 @@ IotSecurity.prototype = {
         let resStr = this.randomizeBatch(addrArray, numOfBatches);
 
         LocalStorage.set(resultKey, resStr);
-        LocalStorage.set(generationBlkHeightKey, Blockchain.getCurrBlockHeight());
+        LocalStorage.set(startingBlkHeightKey, Blockchain.getCurrBlockHeight()+1);
 
     },
     randomizeBatch: function(inputArr, numOfBatches){
@@ -157,13 +171,13 @@ IotSecurity.prototype = {
         return resStr;
     },
     getNextVerifyTargetBatch: function(){
-        return this.getNextBatch(keyVerifyTargetAddrs, keyVerifyTargetGenerationBlkHeight, numOfVerifyTargetBatch);
+        return this.getNextBatch(keyVerifyTargetAddrs, keyVerifyTargetStartingBlkHeight, numOfVerifyTargetBatch);
     },
     getNextVerifierBatch: function(){
-        return this.getNextBatch(keyVerifierAddrs, keyVerifierGenerationBlkHeight, numOfVerifierBatch);
+        return this.getNextBatch(keyVerifierAddrs, keyVerifierStartingBlkHeight, numOfVerifierBatch);
     },
-    getNextBatch:function(addrsKey, generationBlkHeightKey, numOfBatches){
-        let startingBlkHeight = LocalStorage.get(generationBlkHeightKey);
+    getNextBatch:function(addrsKey, startingBlkHeightKey, numOfBatches){
+        let startingBlkHeight = LocalStorage.get(startingBlkHeightKey);
         if (startingBlkHeight==0){
             return "";
         }
@@ -172,14 +186,14 @@ IotSecurity.prototype = {
         if (!nextBatches){
             return "";
         }
-        let index = Blockchain.getCurrBlockHeight()-startingBlkHeight-1;
+        let index = Blockchain.getCurrBlockHeight()-startingBlkHeight;
         if(index >= numOfBatches){
             return "";
         }
         let batch = nextBatches[index];
 
         if(index == numOfBatches -1){
-            this.setNextBatch(addrsKey, generationBlkHeightKey, numOfBatches);
+            this.setNextBatch(addrsKey, startingBlkHeightKey, numOfBatches);
         }
         return batch;
     },
@@ -207,10 +221,11 @@ IotSecurity.prototype = {
             _log.warn("Check: Current data:", info[keyCurrInfo]);
             return false;
         }
-        if (info[keyBlkHeight] != Blockchain.getCurrBlockHeight()){
+        let newBatchBlockHeight = LocalStorage.get(keyVerifyTargetStartingBlkHeight);
+        if (info[keyBlkHeight] != newBatchBlockHeight){
             _log.warn("Check: Uploaded data is out of date. Addr:", addr);
             _log.warn("Check: Block height when data is uploaded:", info[keyBlkHeight]);
-            _log.warn("Check: Current Block height:", Blockchain.getCurrBlockHeight());
+            _log.warn("Check: Starting Block height of current batch:", newBatchBlockHeight);
             return false;
         }
         return true;
