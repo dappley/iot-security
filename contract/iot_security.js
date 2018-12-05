@@ -84,21 +84,30 @@ IotSecurity.prototype = {
         return LocalStorage.set(keyAddrs, addrs.toString());
     },
     dapp_schedule: function() {
+        _log.debug("IoT Security: Verifying...");
         //get the verifier this roung
         let nextVerifierBatch = this.getNextVerifierBatch()
         if(!nextVerifierBatch){
+            _log.debug("IoT Security: Verifier batch is not generated yet. exiting...")
             this.setNextVerifierBatch();
             return false;
         }
 
         //check if the node should do the verification this round
         let nodeAddr = Blockchain.getNodeAddress();
+        if (!nodeAddr) {
+            _log.debug("IoT Security: Node address is not set. exiting...")
+            return false;
+        }
+
         if(!nextVerifierBatch.includes(nodeAddr)){
+            _log.debug("IoT Security: This node is not the verifier this round. exiting...")
             return false;
         }
 
         let nextbatch = this.getNextVerifyTargetBatch();
         if(!nextbatch){
+            _log.debug("IoT Security: Verify targets are not generated yet. exiting...")
             this.setNextVerifyTargetsBatch();
             return false;
         }
@@ -111,6 +120,7 @@ IotSecurity.prototype = {
                _log.warn("Node might be attacked! Addr:", addrs[i]);
             }
         }
+        _log.debug("IoT Security: Verification finished.")
         return true
     },
     setNextVerifyTargetsBatch: function() {
