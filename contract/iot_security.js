@@ -8,12 +8,20 @@ const keyAddrs = "allNodeAddresses";
 const keyPrevInfo = "prevInfo";
 const keyCurrInfo = "currInfo";
 const keyBlkHeight = "blkHeight";
-const keyStartingBlkHeight = "startingBlkHeight";
-const keyVerificationAddrs = "verificationAddresses";
+
+const keyVerifyTargetGenerationBlkHeight = "startingBlkHeight";
+const keyVerifyTargetAddrs = "verificationAddresses";
+
+const keyVerifierGenerationBlkHeight = "startingBlkHeight";
+const keyVerifierAddrs = "verifierAddresses";
+
 const InfoKeyHeight = "BlkHeight";
 const InfoKeyData = "Data";
+
+//should be configurable
 const adminAddr = "dHqWD1QtVqe9ioFWNUCQC2EAi6QZ9sg8Np";
-var numOfBatch = 4;
+const numOfVerifyTargetBatch = 4;
+const numOfVerifierBatch = 3;
 
 IotSecurity.prototype = {
     register: function(info, addr, pubKey, sig){
@@ -76,10 +84,23 @@ IotSecurity.prototype = {
         return LocalStorage.set(keyAddrs, addrs.toString());
     },
     dapp_schedule: function() {
-        let nextbatch = this.getNextBatch();
+        //get the verifier this roung
+        let nextVerifierBatch = this.getNextVerifierBatch()
+        if(!nextVerifierBatch){
+            this.setNextVerifierBatch();
+            return false;
+        }
+
+        //check if the node should do the verification this round
+        let nodeAddr = Blockchain.getNodeAddress();
+        if(!nextVerifierBatch.includes(nodeAddr)){
+            return false;
+        }
+
+        let nextbatch = this.getNextVerifyTargetBatch();
         if(!nextbatch){
-            this.setNextBatch();
-            return;
+            this.setNextVerifyTargetsBatch();
+            return false;
         }
 
         let addrs = nextbatch.split(",");
@@ -90,46 +111,65 @@ IotSecurity.prototype = {
                _log.warn("Node might be attacked! Addr:", addrs[i]);
             }
         }
+        return true
     },
-    setNextBatch: function() {
+    setNextVerifyTargetsBatch: function() {
+        this.setNextBatch(keyVerifyTargetAddrs, keyVerifyTargetGenerationBlkHeight, numOfVerifyTargetBatch)
+    },
+    setNextVerifierBatch: function(){
+        this.setNextBatch(keyVerifierAddrs, keyVerifierGenerationBlkHeight, numOfVerifierBatch)
+    },
+    setNextBatch: function(resultKey, generationBlkHeightKey, numOfBatches){
         let addrs = LocalStorage.get(keyAddrs);
         if (!addrs){
             return;
         }
         let addrArray = addrs.split(",");
-        let numOfAddrInBatch = Math.floor(addrArray.length/numOfBatch);
-        addrArray = this.shuffle(addrArray);
+        let resStr = this.randomizeBatch(addrArray, numOfBatches);
+
+        LocalStorage.set(resultKey, resStr);
+        LocalStorage.set(generationBlkHeightKey, Blockchain.getCurrBlockHeight());
+
+    },
+    randomizeBatch: function(inputArr, numOfBatches){
+        let numOfAddrInBatch = Math.floor(inputArr.length/numOfBatches);
+        let resArr = this.shuffle(inputArr);
         let res = {};
         let i;
-        for (i = 0; i < numOfBatch; i++) {
-            if (i == (numOfBatch -1)){
-                res[i] = addrArray.slice(i*numOfAddrInBatch).toString();
+        for (i = 0; i < numOfBatches; i++) {
+            if (i == (numOfBatches -1)){
+                res[i] = resArr.slice(i*numOfAddrInBatch).toString();
             }else{
-                res[i] = addrArray.slice(i*numOfAddrInBatch, (i+1)*numOfAddrInBatch).toString();
+                res[i] = resArr.slice(i*numOfAddrInBatch, (i+1)*numOfAddrInBatch).toString();
             }
         }
         let resStr = JSON.stringify(res);
-        LocalStorage.set(keyVerificationAddrs, resStr);
-        LocalStorage.set(keyStartingBlkHeight, Blockchain.getCurrBlockHeight());
+        return resStr;
     },
-    getNextBatch: function(){
-        let startingBlkHeight = LocalStorage.get(keyStartingBlkHeight);
+    getNextVerifyTargetBatch: function(){
+        return this.getNextBatch(keyVerifyTargetAddrs, keyVerifyTargetGenerationBlkHeight, numOfVerifyTargetBatch);
+    },
+    getNextVerifierBatch: function(){
+        return this.getNextBatch(keyVerifierAddrs, keyVerifierGenerationBlkHeight, numOfVerifierBatch);
+    },
+    getNextBatch:function(addrsKey, generationBlkHeightKey, numOfBatches){
+        let startingBlkHeight = LocalStorage.get(generationBlkHeightKey);
         if (startingBlkHeight==0){
             return "";
         }
-        let nextBatchesJson = LocalStorage.get(keyVerificationAddrs);
+        let nextBatchesJson = LocalStorage.get(addrsKey);
         let nextBatches = JSON.parse(nextBatchesJson)
         if (!nextBatches){
             return "";
         }
         let index = Blockchain.getCurrBlockHeight()-startingBlkHeight-1;
-        if(index >= numOfBatch){
+        if(index >= numOfBatches){
             return "";
         }
         let batch = nextBatches[index];
 
-        if(index == numOfBatch -1){
-            this.setNextBatch();
+        if(index == numOfBatches -1){
+            this.setNextBatch(addrsKey, generationBlkHeightKey, numOfBatches);
         }
         return batch;
     },
