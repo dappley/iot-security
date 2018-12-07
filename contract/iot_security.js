@@ -20,8 +20,8 @@ const InfoKeyData = "Data";
 
 //should be configurable
 const adminAddr = "dHqWD1QtVqe9ioFWNUCQC2EAi6QZ9sg8Np";
-const numOfVerifyTargetBatch = 4;
-const numOfVerifierBatch = 3;
+const numOfVerifyTargetBatch = 3;
+const numOfVerifierBatch = 2;
 
 IotSecurity.prototype = {
     register: function(info, addr, pubKey, sig){
@@ -44,9 +44,9 @@ IotSecurity.prototype = {
             return false;
         }
         if (info[InfoKeyHeight] != newBatchBlockHeight){
-            _log.warn("Register: Not able to upload data right now");
-            _log.warn("Register: Uploaded block height:", info[InfoKeyHeight]);
-            _log.warn("Register: Last possible upload block height:", newBatchBlockHeight);
+            _log.debug("Register: Not able to upload data right now");
+            _log.debug("Register: Uploaded block height:", info[InfoKeyHeight]);
+            _log.debug("Register: Last possible upload block height:", newBatchBlockHeight);
             return false;
         }
         let infoString = JSON.stringify(info);
@@ -57,26 +57,25 @@ IotSecurity.prototype = {
         }
 
         let data = LocalStorage.get(addr);
-        let currBlkHeight = Blockchain.getCurrBlockHeight();
-        let jsonObj = {};
+        let lastInfo = {};
 
         if (data){
-            jsonObj = JSON.parse(data);
+            lastInfo = JSON.parse(data);
             //check block height. 1 register per block. Second register will be declined
-            if (currBlkHeight <= jsonObj[keyBlkHeight] ){
+            if (info[InfoKeyHeight] === lastInfo[keyBlkHeight] ){
                 _log.warn("Register: Duplicated register");
-                _log.warn("Register: CurrentBlkHeight:", currBlkHeight);
-                _log.warn("Register: LastBlkHeight:", jsonObj[keyBlkHeight]);
+                _log.warn("Register: CurrentBlkHeight:", info[InfoKeyHeight]);
+                _log.warn("Register: LastBlkHeight:", lastInfo[keyBlkHeight]);
                 return false;
             }
-            jsonObj[keyPrevInfo] = jsonObj[keyCurrInfo];
-                    }else{
-            jsonObj[keyPrevInfo] = info[InfoKeyData];
+            lastInfo[keyPrevInfo] = lastInfo[keyCurrInfo];
+        }else{
+            lastInfo[keyPrevInfo] = info[InfoKeyData];
         }
 
-        jsonObj[keyCurrInfo] = info[InfoKeyData];
-        jsonObj[keyBlkHeight] = currBlkHeight;
-        let result = JSON.stringify(jsonObj);
+        lastInfo[keyCurrInfo] = info[InfoKeyData];
+        lastInfo[keyBlkHeight] = info[InfoKeyHeight];
+        let result = JSON.stringify(lastInfo);
         LocalStorage.set(addr, result);
         return true
     },
@@ -99,15 +98,30 @@ IotSecurity.prototype = {
     },
     dapp_schedule: function() {
         _log.debug("IoT Security: Verifying...");
-        //get the verifier this roung
-        let nextVerifierBatch = this.getNextVerifierBatch()
+        //get the verifier this round
+        let verifierIndex = this.getNextBatchIndex(keyVerifierStartingBlkHeight, numOfVerifierBatch);
+        if (verifierIndex==-1) {
+            _log.debug("IoT Security: Verifier batch is not generated yet. Index could not be found. exiting...")
+            this.setNextVerifierBatch();
+            return false;
+        }
+
+        let nextVerifierBatch = this.getVerifierBatchByIndex(verifierIndex)
         if(!nextVerifierBatch){
             _log.debug("IoT Security: Verifier batch is not generated yet. exiting...")
             this.setNextVerifierBatch();
             return false;
         }
 
-        let nextbatch = this.getNextVerifyTargetBatch();
+        //get the verify targets this round
+        let targetIndex = this.getNextBatchIndex(keyVerifyTargetStartingBlkHeight, numOfVerifyTargetBatch);
+        if (targetIndex==-1) {
+            _log.debug("IoT Security: Verifier batch is not generated yet. Index could not be found. exiting...")
+            this.setNextVerifierBatch();
+            return false;
+        }
+
+        let nextbatch = this.getVerifyTargetBatchByIndex(targetIndex);
         if(!nextbatch){
             _log.debug("IoT Security: Verify targets are not generated yet. exiting...")
             this.setNextVerifyTargetsBatch();
@@ -123,18 +137,27 @@ IotSecurity.prototype = {
 
         if(!nextVerifierBatch.includes(nodeAddr)){
             _log.debug("IoT Security: This node is not the verifier this round. exiting...")
-            return false;
-        }
-
-        let addrs = nextbatch.split(",");
-        let i = 0;
-        for(i=0;i<addrs.length;i++){
-            if(!this.check(addrs[i].toString())){
-               //TODO: notify user
-               _log.warn("Node might be attacked! Addr:", addrs[i]);
+        }else{
+            let addrs = nextbatch.split(",");
+            let i = 0;
+            for(i=0;i<addrs.length;i++){
+                if(!this.check(addrs[i].toString())){
+                    //TODO: notify user
+                    _log.warn("Node might be attacked! Addr:", addrs[i]);
+                }
             }
         }
         _log.debug("IoT Security: Verification finished.")
+        _log.debug("IOT SEcurity: verifier index:", verifierIndex);
+        _log.debug("IOT SEcurity: target Index :", targetIndex);
+        if(verifierIndex == (numOfVerifierBatch -1)){
+            this.setNextVerifierBatch();
+        }
+
+        if(targetIndex == (numOfVerifyTargetBatch -1)){
+            this.setNextVerifyTargetsBatch();
+        }
+
         return true
     },
     setNextVerifyTargetsBatch: function() {
@@ -152,7 +175,7 @@ IotSecurity.prototype = {
         let resStr = this.randomizeBatch(addrArray, numOfBatches);
 
         LocalStorage.set(resultKey, resStr);
-        LocalStorage.set(startingBlkHeightKey, Blockchain.getCurrBlockHeight()+1);
+        LocalStorage.set(startingBlkHeightKey, Blockchain.getCurrBlockHeight());
 
     },
     randomizeBatch: function(inputArr, numOfBatches){
@@ -170,32 +193,32 @@ IotSecurity.prototype = {
         let resStr = JSON.stringify(res);
         return resStr;
     },
-    getNextVerifyTargetBatch: function(){
-        return this.getNextBatch(keyVerifyTargetAddrs, keyVerifyTargetStartingBlkHeight, numOfVerifyTargetBatch);
+    getVerifyTargetBatchByIndex: function(index){
+        return this.getBatchByIndex(keyVerifyTargetAddrs, index);
     },
-    getNextVerifierBatch: function(){
-        return this.getNextBatch(keyVerifierAddrs, keyVerifierStartingBlkHeight, numOfVerifierBatch);
+    getVerifierBatchByIndex: function(index){
+        return this.getBatchByIndex(keyVerifierAddrs,index);
     },
-    getNextBatch:function(addrsKey, startingBlkHeightKey, numOfBatches){
-        let startingBlkHeight = LocalStorage.get(startingBlkHeightKey);
-        if (startingBlkHeight==0){
-            return "";
-        }
+    getBatchByIndex:function(addrsKey, index){
+
         let nextBatchesJson = LocalStorage.get(addrsKey);
         let nextBatches = JSON.parse(nextBatchesJson)
         if (!nextBatches){
             return "";
         }
-        let index = Blockchain.getCurrBlockHeight()-startingBlkHeight;
-        if(index >= numOfBatches){
-            return "";
-        }
         let batch = nextBatches[index];
-
-        if(index == numOfBatches -1){
-            this.setNextBatch(addrsKey, startingBlkHeightKey, numOfBatches);
-        }
         return batch;
+    },
+    getNextBatchIndex: function(startingBlkHeightKey, numOfBatches){
+        let startingBlkHeight = LocalStorage.get(startingBlkHeightKey);
+        if (startingBlkHeight==0){
+            return -1;
+        }
+        let index = Blockchain.getCurrBlockHeight()-startingBlkHeight-1;
+        if(index >= numOfBatches){
+            return -1;
+        }
+        return index
     },
     verify: function(msg, addr, pubKey, sig){
         if (!crypto.verifyPublicKey(addr, pubKey)){

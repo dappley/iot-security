@@ -20,12 +20,15 @@ import (
 )
 
 type Config struct {
-	RpcPort        int
 	SenderAddr     string
-	ContractAddr   string
+	RpcPort        int
 	NodeAddr       string
 	NodePubkey     string
 	NodePrivateKey string
+}
+
+type CommonConfig struct{
+	ContractAddr   string
 }
 
 type InfoStruct struct{
@@ -40,10 +43,16 @@ func main() {
 	})
 
 	var filePath string
-	flag.StringVar(&filePath, "f", "default.conf", "config file path")
+	flag.StringVar(&filePath, "f", "conf/default.conf", "config file path")
 	flag.Parse()
 
 	config, err := getConfigs(filePath)
+	if err != nil {
+		logger.Error("can not read config file. Error:", err)
+		return
+	}
+
+	commonConfig, err := getCommonConfigs()
 	if err != nil {
 		logger.Error("can not read config file. Error:", err)
 		return
@@ -68,7 +77,7 @@ func main() {
 				return
 			}
 			if blkHeight > currBlkHeight {
-				register(adminRpcService, rpcService, config)
+				register(adminRpcService, rpcService, config, commonConfig)
 				logger.Info("Registered! BlockHeight:", blkHeight)
 				currBlkHeight = blkHeight
 			}
@@ -99,6 +108,21 @@ func getConfigs(filePath string) (Config, error) {
 	return config, nil
 }
 
+func getCommonConfigs() (CommonConfig, error) {
+	file, err := os.Open("conf/common.conf")
+	if err != nil {
+		return CommonConfig{}, err
+	}
+	defer file.Close()
+	decoder := json.NewDecoder(file)
+	config := CommonConfig{}
+	err = decoder.Decode(&config)
+	if err != nil {
+		return CommonConfig{}, err
+	}
+	return config, nil
+}
+
 func initRpcClient(port int) *grpc.ClientConn {
 	//prepare grpc client
 	var conn *grpc.ClientConn
@@ -109,7 +133,7 @@ func initRpcClient(port int) *grpc.ClientConn {
 	return conn
 }
 
-func register(adminServiceClient rpcpb.AdminServiceClient, rpcServiceClient rpcpb.RpcServiceClient, config Config) {
+func register(adminServiceClient rpcpb.AdminServiceClient, rpcServiceClient rpcpb.RpcServiceClient, config Config, commonConfig CommonConfig) {
 
 	file, err := os.Stat("contract")
 	if err != nil {
@@ -122,7 +146,7 @@ func register(adminServiceClient rpcpb.AdminServiceClient, rpcServiceClient rpcp
 		logger.Panic("Unable to get latest block height. Error:", err)
 	}
 
-	info := InfoStruct{file.Mode().String(), blkHeight+1}
+	info := InfoStruct{file.Mode().String(), blkHeight}
 	infoBytes, err := json.Marshal(info)
 	if err != nil {
 		logger.Panic("Unable to parse info. Error:",err)
@@ -146,7 +170,7 @@ func register(adminServiceClient rpcpb.AdminServiceClient, rpcServiceClient rpcp
 	}
 	_, err = adminServiceClient.RpcSend(context.Background(), &rpcpb.SendRequest{
 		From:       config.SenderAddr,
-		To:         config.ContractAddr,
+		To:         commonConfig.ContractAddr,
 		Amount:     common.NewAmount(uint64(1)).Bytes(),
 		Tip:        0,
 		Walletpath: client.GetWalletFilePath(),

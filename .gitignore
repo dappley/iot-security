@@ -6,6 +6,7 @@
 *.dylib
 .idea/
 vendor/
+iot-security
 
 # Test binary, build with `go test -c`
 *.test
