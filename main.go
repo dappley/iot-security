@@ -20,6 +20,7 @@ import (
 )
 
 type Config struct {
+	MonitorPath    string
 	SenderAddr     string
 	RpcPort        int
 	NodeAddr       string
@@ -135,7 +136,7 @@ func initRpcClient(port int) *grpc.ClientConn {
 
 func register(adminServiceClient rpcpb.AdminServiceClient, rpcServiceClient rpcpb.RpcServiceClient, config Config, commonConfig CommonConfig) {
 
-	file, err := os.Stat("contract")
+	file, err := os.Stat(config.MonitorPath)
 	if err != nil {
 		logger.Panic("Cannot access directory. Error:",err)
 	}
