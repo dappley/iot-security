@@ -2,20 +2,16 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"github.com/dappley/go-dappley/client"
 	"github.com/dappley/go-dappley/common"
-	"github.com/dappley/go-dappley/crypto/keystore/secp256k1"
 	"github.com/dappley/go-dappley/rpc/pb"
 	logger "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
-	"log"
+	"io/ioutil"
 	"os"
-	"strings"
 )
 
 type Config struct {
@@ -39,7 +35,7 @@ func main() {
 	})
 
 	var filePath string
-	flag.StringVar(&filePath, "f", "default.conf", "config file path")
+	flag.StringVar(&filePath, "f", "../setup/default.conf", "config file path")
 	flag.Parse()
 
 	config, err := getConfigs(filePath)
@@ -50,7 +46,7 @@ func main() {
 
 	conn := initRpcClient(config.RpcPort)
 	adminRpcService := rpcpb.NewAdminServiceClient(conn)
-	initialSetup(adminRpcService, config)
+	deploy(adminRpcService, config)
 }
 
 func getConfigs(filePath string) (Config, error) {
@@ -73,51 +69,31 @@ func initRpcClient(port int) *grpc.ClientConn {
 	var conn *grpc.ClientConn
 	conn, err := grpc.Dial(fmt.Sprint(":", port), grpc.WithInsecure())
 	if err != nil {
-		log.Panic("ERROR: Not able to connect to RPC server. ERR:", err)
+		logger.Panic("ERROR: Not able to connect to RPC server. ERR:", err)
 	}
 	return conn
 }
 
-func initialSetup(serviceClient rpcpb.AdminServiceClient, config Config) {
+func deploy(serviceClient rpcpb.AdminServiceClient, config Config) {
 
-	addrsContent := strings.Join(config.Addresses, ",")
-	data := sha256.Sum256([]byte(addrsContent))
-	privData, err := hex.DecodeString(config.AdminPrivKey)
+	script, err := ioutil.ReadFile("iot_security.js")
 	if err != nil {
-		logger.Panic("Cannot decode admin private key")
+		fmt.Println("Smart contract path is invalid. Path: iot_security.js")
+		return
 	}
-	signature, err := secp256k1.Sign(data[:], privData)
-	sig := hex.EncodeToString(signature)
-
-	addrArray := []string{}
-	for _, addr := range config.Addresses {
-		addrArray = append(addrArray, fmt.Sprintf("\"%s\"", addr))
-	}
-	addrs := strings.Join(addrArray, ",")
-	
-	var input ArgStruct
-	input.Function = "setup"
-	input.Args = []string{
-		fmt.Sprintf("[%s]", addrs),
-		config.AdminPubKey,
-		sig,
-	}
-	rawBytes, err := json.Marshal(input)
-
-	if err != nil {
-		logger.Panic("Unable to parse function")
-	}
-
-	_, err = serviceClient.RpcSend(context.Background(), &rpcpb.SendRequest{
+	resp, err := serviceClient.RpcSend(context.Background(), &rpcpb.SendRequest{
 		From:       config.SenderAddr,
-		To:         config.ContractAddr,
+		To:         "",
 		Amount:     common.NewAmount(uint64(1)).Bytes(),
 		Tip:        common.NewAmount(uint64(0)).Bytes(),
 		WalletPath: client.GetWalletFilePath(),
-		Data:       string(rawBytes),
+		Data:       string(script),
 	})
 	if err != nil {
 		logger.Panic("RPC Send failed. err:", err)
 	}
+	logger.WithFields(logger.Fields{
+		"contract_addr" :	resp.ContractAddr,
+	}).Info("contract has been deployed!")
 }
 

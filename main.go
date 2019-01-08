@@ -173,8 +173,8 @@ func register(adminServiceClient rpcpb.AdminServiceClient, rpcServiceClient rpcp
 		From:       config.SenderAddr,
 		To:         commonConfig.ContractAddr,
 		Amount:     common.NewAmount(uint64(1)).Bytes(),
-		Tip:        0,
-		Walletpath: client.GetWalletFilePath(),
+		Tip:        common.NewAmount(uint64(0)).Bytes(),
+		WalletPath: client.GetWalletFilePath(),
 		Data:       string(rawBytes),
 	})
 	if err != nil {

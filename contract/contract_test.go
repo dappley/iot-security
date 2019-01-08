@@ -1,5 +1,4 @@
-package vm
-
+package main_test
 import (
 	"encoding/hex"
 	"encoding/json"
